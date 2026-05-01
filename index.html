@@ -2314,22 +2314,37 @@
       state.monthPlanText = document.getElementById("monthPlanText")?.value || state.monthPlanText;
       localStorage.setItem(currentUser ? `${storageKey}-${currentUser}` : storageKey, JSON.stringify(state));
       saveCloudState(show);
-      window.saveCloudBaseWorkbenchState?.(state, false);
       if (show && !cloudEnabled()) toast("数据已保存到本机浏览器");
     }
 
-    function syncCloudBaseNow() {
-      saveState(false);
-      const run = () => {
-        if (!window.saveCloudBaseWorkbenchState) return toast("CloudBase 加载失败，请刷新页面再试");
-        window.saveCloudBaseWorkbenchState(state, true, true);
-      };
-      if (window.saveCloudBaseWorkbenchState) {
-        run();
-        return;
+    async function syncCloudBaseNow() {
+      state.planText = document.getElementById("planText")?.value || state.planText;
+      state.weekPlanText = document.getElementById("weekPlanText")?.value || state.weekPlanText;
+      state.monthPlanText = document.getElementById("monthPlanText")?.value || state.monthPlanText;
+      localStorage.setItem(currentUser ? `${storageKey}-${currentUser}` : storageKey, JSON.stringify(state));
+
+      const button = byId("cloudSyncBtn");
+      const oldText = button?.textContent || "同步到云端";
+      if (button) {
+        button.disabled = true;
+        button.textContent = "同步中...";
       }
-      toast("CloudBase 正在加载，马上为你同步");
-      setTimeout(run, 1200);
+      try {
+        if (!window.saveCloudBaseWorkbenchState) {
+          toast("CloudBase 正在加载，马上为你同步");
+          await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+        if (!window.saveCloudBaseWorkbenchState) {
+          toast("CloudBase 加载失败，请刷新页面再试");
+          return;
+        }
+        await window.saveCloudBaseWorkbenchState(state, true, true);
+      } finally {
+        if (button) {
+          button.disabled = false;
+          button.textContent = oldText;
+        }
+      }
     }
 
     function toast(text) {
@@ -4754,105 +4769,107 @@
   </script>
   <script src="https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js" onerror="window.toast && window.toast('CloudBase SDK 网络加载失败，请检查网络或刷新页面')"></script>
   <script>
-    window.cloudBaseSdkLoaded = Boolean(window.cloudbase);
-    if (!window.cloudbase) {
-      window.toast?.("CloudBase SDK 加载失败，请检查网络或刷新页面");
-      throw new Error("CloudBase SDK failed to load");
-    }
-    const cloudBaseApp = cloudbase.init({
-      env: "coach-system-d7g4ukgsh3a1d29d4"
-    });
-    const cloudBaseAuth = cloudBaseApp.auth();
-    const cloudBaseDb = cloudBaseApp.database();
-    const cloudBaseCollection = cloudBaseDb.collection("records");
-    const cloudBaseWorkspace = "bsu-wbb-main";
-    const cloudBaseDeviceKey = "bsu-wbb-cloudbase-device-v1";
-    const cloudBaseDeviceId = localStorage.getItem(cloudBaseDeviceKey) || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    localStorage.setItem(cloudBaseDeviceKey, cloudBaseDeviceId);
-    let cloudBaseReady = false;
-    let cloudBaseSaving = false;
+    (function setupCloudBaseSync() {
+      const envId = "coach-system-d7g4ukgsh3a1d29d4";
+      const workspace = "bsu-wbb-main";
+      const deviceKey = "bsu-wbb-cloudbase-device-v1";
+      const deviceId = localStorage.getItem(deviceKey) || String(Date.now()) + "-" + Math.random().toString(16).slice(2);
+      localStorage.setItem(deviceKey, deviceId);
 
-    async function signInCloudBase() {
-      try {
-        const loginState = await cloudBaseAuth.getLoginState?.();
-        if (loginState) return;
-      } catch {}
-      if (cloudBaseAuth.anonymousAuthProvider) {
-        await cloudBaseAuth.anonymousAuthProvider().signIn();
-        return;
-      }
-      if (cloudBaseAuth.signInAnonymously) {
-        const result = await cloudBaseAuth.signInAnonymously();
-        if (result?.error) throw result.error;
-      }
-    }
+      let app = null;
+      let auth = null;
+      let collection = null;
+      let loginPromise = null;
+      let saving = false;
 
-    async function loadFromCloud() {
-      try {
-        await signInCloudBase();
-        let res;
-        try {
-          res = await cloudBaseCollection
-            .where({ workspace: cloudBaseWorkspace })
-            .orderBy("updatedAt", "desc")
-            .limit(1)
-            .get();
-        } catch {
-          res = await cloudBaseCollection.where({ workspace: cloudBaseWorkspace }).get();
-          if (Array.isArray(res.data)) {
-            res.data.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
-            res.data = res.data.slice(0, 1);
+      function cloudMessage(prefix, error) {
+        const reason = (error && (error.code || error.message || error.errMsg)) || "未知原因";
+        return prefix + "：" + reason;
+      }
+
+      function initCloudBase() {
+        if (collection) return true;
+        if (!window.cloudbase) {
+          window.toast && window.toast("CloudBase SDK 没有加载成功，请刷新页面");
+          return false;
+        }
+        window.cloudBaseSdkLoaded = true;
+        app = window.cloudbase.init({ env: envId });
+        auth = app.auth({ persistence: "local" });
+        collection = app.database().collection("records");
+        return true;
+      }
+
+      async function loginCloudBase() {
+        if (!initCloudBase()) throw new Error("CloudBase SDK 未加载");
+        if (loginPromise) return loginPromise;
+        loginPromise = (async function () {
+          const loginState = await auth.getLoginState();
+          if (loginState) return loginState;
+          if (auth.anonymousAuthProvider) {
+            return auth.anonymousAuthProvider().signIn();
           }
-        }
-        const record = Array.isArray(res.data) ? res.data[0] : res.data;
-        if (record?.data) {
-          window.applyCloudBaseWorkbenchState?.(record.data);
-        } else if (window.getWorkbenchState) {
-          await cloudBaseCollection.add({
-            workspace: cloudBaseWorkspace,
-            data: window.getWorkbenchState(),
-            deviceId: cloudBaseDeviceId,
-            updatedAt: new Date().toISOString()
+          if (auth.signInAnonymously) {
+            return auth.signInAnonymously();
+          }
+          throw new Error("当前 CloudBase SDK 不支持匿名登录方法");
+        })();
+        return loginPromise;
+      }
+
+      async function loadFromCloud() {
+        try {
+          await loginCloudBase();
+          const result = await collection.where({ workspace: workspace }).get();
+          const rows = Array.isArray(result.data) ? result.data : [];
+          rows.sort(function (a, b) {
+            return String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
           });
-          window.toast?.("已创建 CloudBase 云端数据");
+          const latest = rows[0];
+          if (latest && latest.data) {
+            window.applyCloudBaseWorkbenchState && window.applyCloudBaseWorkbenchState(latest.data);
+          } else {
+            window.toast && window.toast("CloudBase 已连接，暂无云端工作台数据");
+          }
+        } catch (error) {
+          console.error(error);
+          window.toast && window.toast(cloudMessage("CloudBase 读取失败", error));
         }
-      } catch (error) {
-        console.error(error);
-        const reason = error?.code || error?.message || "未知原因";
-        window.toast?.(`CloudBase 云端读取失败：${reason}`);
-      } finally {
-        cloudBaseReady = true;
       }
-    }
 
-    async function saveToCloud(data, showToast = false, force = false) {
-      if (!cloudBaseReady && !force) return;
-      if (cloudBaseSaving) return;
-      cloudBaseSaving = true;
-      try {
-        await signInCloudBase();
-        const payload = {
-          workspace: cloudBaseWorkspace,
-          data,
-          deviceId: cloudBaseDeviceId,
-          updatedAt: new Date().toISOString()
-        };
-        const result = await cloudBaseCollection.add(payload);
-        if (showToast) {
-          const id = result?.id || result?._id || "已写入";
-          window.toast?.(`数据已保存到 CloudBase 云端：${id}`);
+      async function saveToCloud(data, showToast) {
+        if (saving) {
+          if (showToast) window.toast && window.toast("CloudBase 正在保存，请稍等");
+          return false;
         }
-      } catch (error) {
-        console.error(error);
-        const reason = error?.code || error?.message || "未知原因";
-        if (showToast) window.toast?.(`CloudBase 云端保存失败：${reason}`);
-      } finally {
-        cloudBaseSaving = false;
+        saving = true;
+        try {
+          await loginCloudBase();
+          const payload = {
+            workspace: workspace,
+            deviceId: deviceId,
+            updatedAt: new Date().toISOString(),
+            data: data
+          };
+          const result = await collection.add(payload);
+          if (showToast) {
+            const id = result && (result.id || result._id) || "已写入";
+            window.toast && window.toast("数据已保存到 CloudBase 云端：" + id);
+          }
+          return true;
+        } catch (error) {
+          console.error(error);
+          if (showToast) window.toast && window.toast(cloudMessage("CloudBase 保存失败", error));
+          return false;
+        } finally {
+          saving = false;
+        }
       }
-    }
 
-    window.saveCloudBaseWorkbenchState = saveToCloud;
-    loadFromCloud();
+      window.saveCloudBaseWorkbenchState = saveToCloud;
+      window.loadCloudBaseWorkbenchState = loadFromCloud;
+      loadFromCloud();
+    })();
   </script>
 </body>
 </html>
