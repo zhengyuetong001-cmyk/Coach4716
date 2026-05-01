@@ -1166,32 +1166,13 @@
     }
   </style>
 </head>
-<body class="locked">
+<body>
   <div class="page-bg" aria-hidden="true">
     <div class="bg-slide" style="background-image:url('assets/bsu-wbb-hero-1.jpg')"></div>
     <div class="bg-slide" style="background-image:url('assets/bsu-wbb-hero-2.jpg')"></div>
     <div class="bg-slide" style="background-image:url('assets/bsu-wbb-hero-3.jpg')"></div>
     <div class="bg-slide" style="background-image:url('assets/bsu-wbb-hero-4.jpg')"></div>
   </div>
-  <section class="login-view" id="loginView">
-    <div class="login-card">
-      <div class="brand">
-        <div class="logo">BSU</div>
-        <div>
-          <h2>教练工作台登录</h2>
-          <p class="note">手机号验证码登录：验证成功后进入教练工作台。</p>
-        </div>
-      </div>
-      <div class="field"><label>手机号</label><input id="phone" inputmode="tel" autocomplete="tel" placeholder="例如：+86138xxxxxxx"></div>
-      <div id="recaptcha-container" style="margin-top:12px"></div>
-      <div class="field"><label>短信验证码</label><input id="code" inputmode="numeric" autocomplete="one-time-code" placeholder="输入短信验证码"></div>
-      <div class="actions">
-        <button class="btn" id="sendCodeBtn" type="button">发送验证码</button>
-        <button class="btn primary" id="verifyCodeBtn" type="button">验证登录</button>
-      </div>
-      <p class="note">提示：手机号请带国家区号，例如中国手机号使用 +86 开头。</p>
-    </div>
-  </section>
   <div class="app">
     <button class="nav-fab" id="navFab" type="button" aria-label="打开分页面管理"></button>
     <aside class="sidebar">
@@ -2332,6 +2313,7 @@
       state.monthPlanText = document.getElementById("monthPlanText")?.value || state.monthPlanText;
       localStorage.setItem(currentUser ? `${storageKey}-${currentUser}` : storageKey, JSON.stringify(state));
       saveCloudState(show);
+      window.saveFirebaseWorkbenchState?.(state, show);
       if (show && !cloudEnabled()) toast("数据已保存到本机浏览器");
     }
 
@@ -2342,9 +2324,20 @@
       setTimeout(() => node.classList.remove("show"), 1600);
     }
 
+    window.toast = toast;
+    window.getWorkbenchState = () => state;
+    window.applyFirebaseWorkbenchState = (data) => {
+      if (!data || typeof data !== "object") return;
+      state = migrateState(data);
+      localStorage.setItem(currentUser ? `${storageKey}-${currentUser}` : storageKey, JSON.stringify(state));
+      renderAll();
+      toast("已同步 Firebase 云端数据");
+    };
+
     function unlockApp() {
       document.body.classList.remove("locked");
-      byId("loginView").style.display = "none";
+      const loginView = byId("loginView");
+      if (loginView) loginView.style.display = "none";
     }
 
     function rememberAccount(username, passHash, userId = "") {
@@ -4742,7 +4735,7 @@
   </script>
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getAuth, RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyDOedqMemxzBX2-gmLwJ1o1nBW6gXSnAkU",
@@ -4752,74 +4745,49 @@
     };
 
     const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    auth.languageCode = "zh-CN";
+    const db = getFirestore(app);
+    const workbenchRef = doc(db, "workbench", "bsu-wbb-main");
+    let firebaseReady = false;
+    let firebaseSaving = false;
 
-    const loginView = document.getElementById("loginView");
-    const sendCodeBtn = document.getElementById("sendCodeBtn");
-    const verifyCodeBtn = document.getElementById("verifyCodeBtn");
-
-    function showMessage(text) {
-      if (window.toast) window.toast(text);
-      else alert(text);
-    }
-
-    function enterWorkbench() {
-      document.body.classList.remove("locked");
-      if (loginView) loginView.style.display = "none";
-    }
-
-    function ensureRecaptcha() {
-      if (window.recaptchaVerifier) return window.recaptchaVerifier;
-      window.recaptchaVerifier = new RecaptchaVerifier(auth, "recaptcha-container", {
-        size: "normal"
-      });
-      window.recaptchaVerifier.render();
-      return window.recaptchaVerifier;
-    }
-
-    onAuthStateChanged(auth, (user) => {
-      if (user) enterWorkbench();
-    });
-
-    sendCodeBtn?.addEventListener("click", async () => {
-      const phone = document.getElementById("phone")?.value.trim();
-      if (!phone || !phone.startsWith("+")) return showMessage("请输入带国家区号的手机号，例如 +86138xxxxxxx");
-      sendCodeBtn.disabled = true;
-      sendCodeBtn.textContent = "发送中...";
+    async function loadFirebaseWorkbench() {
       try {
-        const verifier = ensureRecaptcha();
-        window.confirmationResult = await signInWithPhoneNumber(auth, phone, verifier);
-        showMessage("验证码已发送");
+        const snapshot = await getDoc(workbenchRef);
+        if (snapshot.exists()) {
+          window.applyFirebaseWorkbenchState?.(snapshot.data().data);
+        } else if (window.getWorkbenchState) {
+          await setDoc(workbenchRef, {
+            data: window.getWorkbenchState(),
+            updatedAt: serverTimestamp()
+          });
+          window.toast?.("已创建 Firebase 云端数据");
+        }
       } catch (error) {
         console.error(error);
-        showMessage("验证码发送失败，请检查 Firebase 设置和手机号格式");
-        window.recaptchaVerifier = null;
-        document.getElementById("recaptcha-container").innerHTML = "";
+        window.toast?.("Firebase 云端读取失败，已使用本机数据");
       } finally {
-        sendCodeBtn.disabled = false;
-        sendCodeBtn.textContent = "发送验证码";
+        firebaseReady = true;
       }
-    });
+    }
 
-    verifyCodeBtn?.addEventListener("click", async () => {
-      const code = document.getElementById("code")?.value.trim();
-      if (!code) return showMessage("请填写短信验证码");
-      if (!window.confirmationResult) return showMessage("请先发送验证码");
-      verifyCodeBtn.disabled = true;
-      verifyCodeBtn.textContent = "验证中...";
+    window.saveFirebaseWorkbenchState = async (state, showToast = false) => {
+      if (!firebaseReady || firebaseSaving) return;
+      firebaseSaving = true;
       try {
-        await window.confirmationResult.confirm(code);
-        showMessage("登录成功");
-        enterWorkbench();
+        await setDoc(workbenchRef, {
+          data: state,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+        if (showToast) window.toast?.("数据已保存到 Firebase 云端");
       } catch (error) {
         console.error(error);
-        showMessage("验证码不正确或已过期");
+        if (showToast) window.toast?.("Firebase 云端保存失败，已保存到本机");
       } finally {
-        verifyCodeBtn.disabled = false;
-        verifyCodeBtn.textContent = "验证登录";
+        firebaseSaving = false;
       }
-    });
+    };
+
+    loadFirebaseWorkbench();
   </script>
 </body>
 </html>
