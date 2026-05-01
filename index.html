@@ -1208,6 +1208,7 @@
         <div class="searchbar"><span>搜索</span><input id="globalSearch" placeholder="输入球员、训练主题或对手，自动筛选当前数据"></div>
         <div class="toolbar">
           <button class="btn primary" id="saveBtn">保存数据</button>
+      <button class="btn primary" id="cloudSyncBtn">同步到云端</button>
       <button class="btn" id="exportBtn">导出备份</button>
       <button class="btn" id="importBtn">导入备份</button>
       <button class="btn danger" id="resetBtn">恢复示例</button>
@@ -2313,8 +2314,14 @@
       state.monthPlanText = document.getElementById("monthPlanText")?.value || state.monthPlanText;
       localStorage.setItem(currentUser ? `${storageKey}-${currentUser}` : storageKey, JSON.stringify(state));
       saveCloudState(show);
-      window.saveCloudBaseWorkbenchState?.(state, show);
+      window.saveCloudBaseWorkbenchState?.(state, false);
       if (show && !cloudEnabled()) toast("数据已保存到本机浏览器");
+    }
+
+    function syncCloudBaseNow() {
+      saveState(false);
+      if (!window.saveCloudBaseWorkbenchState) return toast("CloudBase 还没有加载完成，请稍等再试");
+      window.saveCloudBaseWorkbenchState(state, true, true);
     }
 
     function toast(text) {
@@ -4620,6 +4627,7 @@
     });
 
     byId("saveBtn").addEventListener("click", () => saveState(true));
+    byId("cloudSyncBtn").addEventListener("click", syncCloudBaseNow);
     byId("logoutBtn").addEventListener("click", async () => {
       saveState(false);
       await cloudClient()?.auth.signOut();
@@ -4801,18 +4809,23 @@
       }
     }
 
-    async function saveToCloud(data, showToast = false) {
-      if (!cloudBaseReady || cloudBaseSaving) return;
+    async function saveToCloud(data, showToast = false, force = false) {
+      if (!cloudBaseReady && !force) return;
+      if (cloudBaseSaving) return;
       cloudBaseSaving = true;
       try {
         await signInCloudBase();
-        await cloudBaseCollection.add({
+        const payload = {
           workspace: cloudBaseWorkspace,
           data,
           deviceId: cloudBaseDeviceId,
           updatedAt: new Date().toISOString()
-        });
-        if (showToast) window.toast?.("数据已保存到 CloudBase 云端");
+        };
+        const result = await cloudBaseCollection.add(payload);
+        if (showToast) {
+          const id = result?.id || result?._id || "已写入";
+          window.toast?.(`数据已保存到 CloudBase 云端：${id}`);
+        }
       } catch (error) {
         console.error(error);
         const reason = error?.code || error?.message || "未知原因";
