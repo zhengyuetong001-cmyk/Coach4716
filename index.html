@@ -2313,7 +2313,7 @@
       state.monthPlanText = document.getElementById("monthPlanText")?.value || state.monthPlanText;
       localStorage.setItem(currentUser ? `${storageKey}-${currentUser}` : storageKey, JSON.stringify(state));
       saveCloudState(show);
-      window.saveFirebaseWorkbenchState?.(state, show);
+      window.saveCloudBaseWorkbenchState?.(state, show);
       if (show && !cloudEnabled()) toast("数据已保存到本机浏览器");
     }
 
@@ -2326,12 +2326,12 @@
 
     window.toast = toast;
     window.getWorkbenchState = () => state;
-    window.applyFirebaseWorkbenchState = (data) => {
+    window.applyCloudBaseWorkbenchState = (data) => {
       if (!data || typeof data !== "object") return;
       state = migrateState(data);
       localStorage.setItem(currentUser ? `${storageKey}-${currentUser}` : storageKey, JSON.stringify(state));
       renderAll();
-      toast("已同步 Firebase 云端数据");
+      toast("已同步 CloudBase 云端数据");
     };
 
     function unlockApp() {
@@ -4733,63 +4733,59 @@
     applyCustomMedia();
     renderAll();
   </script>
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  <script src="https://cdn.jsdelivr.net/npm/@cloudbase/js-sdk/dist/cloudbase.full.js"></script>
+  <script>
+    const cloudBaseApp = cloudbase.init({
+      env: "coach-system-d7g4ukgsh3a1d29d4"
+    });
+    const cloudBaseDb = cloudBaseApp.database();
+    const cloudBaseCollection = cloudBaseDb.collection("records");
+    const cloudBaseDocId = "bsu-wbb-main";
+    let cloudBaseReady = false;
+    let cloudBaseSaving = false;
 
-    const firebaseConfig = {
-      apiKey: "AIzaSyDOedqMemxzBX2-gmLwJ1o1nBW6gXSnAkU",
-      authDomain: "coach-fd698.firebaseapp.com",
-      projectId: "coach-fd698",
-      appId: "1:651756953948:web:6b8fc6c98b7ae51c3d2199"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-    const workbenchRef = doc(db, "workbench", "bsu-wbb-main");
-    let firebaseReady = false;
-    let firebaseSaving = false;
-
-    async function loadFirebaseWorkbench() {
+    async function loadFromCloud() {
       try {
-        const snapshot = await getDoc(workbenchRef);
-        if (snapshot.exists()) {
-          window.applyFirebaseWorkbenchState?.(snapshot.data().data);
+        const res = await cloudBaseCollection.doc(cloudBaseDocId).get();
+        const record = Array.isArray(res.data) ? res.data[0] : res.data;
+        if (record?.data) {
+          window.applyCloudBaseWorkbenchState?.(record.data);
         } else if (window.getWorkbenchState) {
-          await setDoc(workbenchRef, {
+          await cloudBaseCollection.doc(cloudBaseDocId).set({
             data: window.getWorkbenchState(),
-            updatedAt: serverTimestamp()
+            updatedAt: new Date().toISOString()
           });
-          window.toast?.("已创建 Firebase 云端数据");
+          window.toast?.("已创建 CloudBase 云端数据");
         }
       } catch (error) {
         console.error(error);
         const reason = error?.code || error?.message || "未知原因";
-        window.toast?.(`Firebase 云端读取失败：${reason}`);
+        window.toast?.(`CloudBase 云端读取失败：${reason}`);
       } finally {
-        firebaseReady = true;
+        cloudBaseReady = true;
       }
     }
 
-    window.saveFirebaseWorkbenchState = async (state, showToast = false) => {
-      if (!firebaseReady || firebaseSaving) return;
-      firebaseSaving = true;
+    async function saveToCloud(data, showToast = false) {
+      if (!cloudBaseReady || cloudBaseSaving) return;
+      cloudBaseSaving = true;
       try {
-        await setDoc(workbenchRef, {
-          data: state,
-          updatedAt: serverTimestamp()
-        }, { merge: true });
-        if (showToast) window.toast?.("数据已保存到 Firebase 云端");
+        await cloudBaseCollection.doc(cloudBaseDocId).set({
+          data,
+          updatedAt: new Date().toISOString()
+        });
+        if (showToast) window.toast?.("数据已保存到 CloudBase 云端");
       } catch (error) {
         console.error(error);
         const reason = error?.code || error?.message || "未知原因";
-        if (showToast) window.toast?.(`Firebase 云端保存失败：${reason}`);
+        if (showToast) window.toast?.(`CloudBase 云端保存失败：${reason}`);
       } finally {
-        firebaseSaving = false;
+        cloudBaseSaving = false;
       }
-    };
+    }
 
-    loadFirebaseWorkbench();
+    window.saveCloudBaseWorkbenchState = saveToCloud;
+    loadFromCloud();
   </script>
 </body>
 </html>
