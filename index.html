@@ -77,8 +77,11 @@ input {
 </div>
 
 <div class="box">
-<b>推进人：</b><br>
-<div id="handlerList">请先添加队员</div>
+<b>球员选择：</b><br>
+<div style="margin-top:8px;">助攻人：</div>
+<div id="assistList">请先添加队员</div>
+<div style="margin-top:8px;">终结人：</div>
+<div id="finisherList">请先添加队员</div>
 </div>
 
 <div class="box">
@@ -110,7 +113,8 @@ input {
 <script>
 let phase = "";
 let tactic = "";
-let handler = "";
+let assistPlayer = "";
+let finisherPlayer = "";
 let finish = "";
 let result = "";
 
@@ -133,6 +137,12 @@ const defaultPlayers = [
 let savedPlayers = localStorage.getItem("players");
 let players = savedPlayers ? JSON.parse(savedPlayers) : defaultPlayers.slice();
 let records = JSON.parse(localStorage.getItem("records") || "[]");
+
+defaultPlayers.forEach(name=>{
+  if(!players.includes(name)){
+    players.push(name);
+  }
+});
 
 function saveData(){
   localStorage.setItem("players", JSON.stringify(players));
@@ -173,18 +183,22 @@ function addPlayer(){
 
 function renderPlayers(){
   let playerList = document.getElementById("playerList");
-  let handlerList = document.getElementById("handlerList");
+  let assistList = document.getElementById("assistList");
+  let finisherList = document.getElementById("finisherList");
 
   playerList.innerHTML = "";
-  handlerList.innerHTML = "";
+  assistList.innerHTML = "";
+  finisherList.innerHTML = "";
 
   players.forEach(name=>{
     playerList.innerHTML += "<button>" + name + "</button>";
-    handlerList.innerHTML += "<button onclick=\"setHandler(this,'" + name + "')\">" + name + "</button>";
+    assistList.innerHTML += "<button onclick=\"setAssistPlayer(this,'" + name + "')\">" + name + "</button>";
+    finisherList.innerHTML += "<button onclick=\"setFinisherPlayer(this,'" + name + "')\">" + name + "</button>";
   });
 
   if(players.length === 0){
-    handlerList.innerHTML = "请先添加队员";
+    assistList.innerHTML = "请先添加队员";
+    finisherList.innerHTML = "请先添加队员";
   }
 }
 
@@ -209,10 +223,16 @@ function setTactic(btn,val){
   tactic = val;
 }
 
-function setHandler(btn,val){
+function setAssistPlayer(btn,val){
   clearActive(btn.parentNode);
   btn.classList.add("active");
-  handler = val;
+  assistPlayer = val;
+}
+
+function setFinisherPlayer(btn,val){
+  clearActive(btn.parentNode);
+  btn.classList.add("active");
+  finisherPlayer = val;
 }
 
 function setFinish(btn,val){
@@ -240,7 +260,7 @@ function addRecord(){
 
   let time = new Date().toLocaleTimeString();
   let tacticText = phase === "阵地进攻" ? " | 战术：" + tactic : "";
-  let text = time + " | " + phase + tacticText + " | 推进人：" + (handler || "未选") + " | 结束：" + (finish || "未选") + " | " + result;
+  let text = time + " | " + phase + tacticText + " | 助攻人：" + (assistPlayer || "未选") + " | 终结人：" + (finisherPlayer || "未选") + " | 结束：" + (finish || "未选") + " | " + result;
 
   records.unshift(text);
   saveData();
@@ -251,7 +271,8 @@ function addRecord(){
 function resetAll(){
   phase = "";
   tactic = "";
-  handler = "";
+  assistPlayer = "";
+  finisherPlayer = "";
   finish = "";
   result = "";
   document.querySelectorAll("button").forEach(b=>b.classList.remove("active"));
