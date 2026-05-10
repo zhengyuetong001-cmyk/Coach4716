@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>训练记录系统</title>
 <style>
 body {
-  font-family: Arial;
+  font-family: Arial, "Microsoft YaHei", sans-serif;
   background: #f1f5f9;
   padding: 10px;
   max-width: 420px;
@@ -42,6 +43,7 @@ input {
   border-radius: 10px;
   font-size: 13px;
 }
+#tacticBox { display: none; }
 </style>
 </head>
 
@@ -61,6 +63,17 @@ input {
 <button onclick="setPhase(this,'快攻')">快攻</button>
 <button onclick="setPhase(this,'急攻')">急攻</button>
 <button onclick="setPhase(this,'衔接')">衔接</button>
+<button onclick="setPhase(this,'阵地进攻')">阵地进攻</button>
+</div>
+
+<div class="box" id="tacticBox">
+<b>阵地进攻战术：</b><br>
+<button onclick="setTactic(this,'打2')">打2</button>
+<button onclick="setTactic(this,'打5')">打5</button>
+<button onclick="setTactic(this,'拇指')">拇指</button>
+<button onclick="setTactic(this,'拉链')">拉链</button>
+<button onclick="setTactic(this,'牛角')">牛角</button>
+<button onclick="setTactic(this,'1提')">1提</button>
 </div>
 
 <div class="box">
@@ -78,8 +91,8 @@ input {
 
 <div class="box">
 <b>结果：</b><br>
-<button class="success" onclick="setResult('成功')">成功</button>
-<button class="fail" onclick="setResult('失败')">失败</button>
+<button class="success" onclick="setResult(this,'成功')">成功</button>
+<button class="fail" onclick="setResult(this,'失败')">失败</button>
 </div>
 
 <div class="box">
@@ -96,12 +109,29 @@ input {
 
 <script>
 let phase = "";
+let tactic = "";
 let handler = "";
 let finish = "";
 let result = "";
 
-// 关键：从浏览器本地存储读取，刷新/关闭网页后仍然保留
-let players = JSON.parse(localStorage.getItem("players") || "[]");
+const defaultPlayers = [
+  "李殊洋",
+  "孙恬馨",
+  "于欣慧",
+  "尹俐骄",
+  "符钰皙",
+  "周灿一",
+  "葛滢",
+  "金紫萱",
+  "张楚涵",
+  "韩宇彤",
+  "吴若玙",
+  "段万菲",
+  "小白"
+];
+
+let savedPlayers = localStorage.getItem("players");
+let players = savedPlayers ? JSON.parse(savedPlayers) : defaultPlayers.slice();
 let records = JSON.parse(localStorage.getItem("records") || "[]");
 
 function saveData(){
@@ -152,12 +182,31 @@ function renderPlayers(){
     playerList.innerHTML += "<button>" + name + "</button>";
     handlerList.innerHTML += "<button onclick=\"setHandler(this,'" + name + "')\">" + name + "</button>";
   });
+
+  if(players.length === 0){
+    handlerList.innerHTML = "请先添加队员";
+  }
 }
 
 function setPhase(btn,val){
   clearActive(btn.parentNode);
   btn.classList.add("active");
   phase = val;
+
+  let tacticBox = document.getElementById("tacticBox");
+  if(val === "阵地进攻"){
+    tacticBox.style.display = "block";
+  }else{
+    tactic = "";
+    tacticBox.style.display = "none";
+    clearActive(tacticBox);
+  }
+}
+
+function setTactic(btn,val){
+  clearActive(btn.parentNode);
+  btn.classList.add("active");
+  tactic = val;
 }
 
 function setHandler(btn,val){
@@ -172,7 +221,9 @@ function setFinish(btn,val){
   finish = val;
 }
 
-function setResult(val){
+function setResult(btn,val){
+  clearActive(btn.parentNode);
+  btn.classList.add("active");
   result = val;
 }
 
@@ -182,8 +233,14 @@ function addRecord(){
     return;
   }
 
+  if(phase === "阵地进攻" && !tactic){
+    alert("请选择阵地进攻战术");
+    return;
+  }
+
   let time = new Date().toLocaleTimeString();
-  let text = time + " | " + phase + " | 推进人：" + (handler || "未选") + " | 结束：" + (finish || "未选") + " | " + result;
+  let tacticText = phase === "阵地进攻" ? " | 战术：" + tactic : "";
+  let text = time + " | " + phase + tacticText + " | 推进人：" + (handler || "未选") + " | 结束：" + (finish || "未选") + " | " + result;
 
   records.unshift(text);
   saveData();
@@ -193,10 +250,12 @@ function addRecord(){
 
 function resetAll(){
   phase = "";
+  tactic = "";
   handler = "";
   finish = "";
   result = "";
   document.querySelectorAll("button").forEach(b=>b.classList.remove("active"));
+  document.getElementById("tacticBox").style.display = "none";
 }
 
 function clearSavedData(){
@@ -225,12 +284,11 @@ function exportCSV(){
   URL.revokeObjectURL(url);
 }
 
-// 页面打开时自动显示已保存的队员和记录
 window.onload = function(){
+  saveData();
   renderPlayers();
   renderRecords();
 };
-
 </script>
 
 </body>
